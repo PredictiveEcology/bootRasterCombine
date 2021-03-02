@@ -1,0 +1,203 @@
+---
+title: "bootRasterCombine"
+author: "Isolde Lane-Shaw"
+date: "2/16/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages}
+
+#list packages to load
+library("SpaDES")
+library("raster")
+library("sf")
+library("rgdal")
+library("googledrive")
+library("LandR")
+library("reproducible")
+library("tidyverse")
+library("tibble")
+library("dplyr")
+
+
+```
+
+
+# Download/load bootstrapped bird rasters
+
+```{r functionCreateNoBootDF}
+
+createNoBootDF <- function(birdSp, 
+                           BCR,
+                           downloadedRasters){
+
+          #check there is a file to save created rasters and bootstrap numbers info to 
+  fileCombinedRasters <- checkPath(file.path(paste0(getwd(),"/meanVarRasters")), create = TRUE)   
+  #get number of bootstrap replicates
+  noBootsBCR <- length(downloadedRasters)  
+  
+  if (!file.exists(paste0(fileCombinedRasters,"/noBootsDF.csv"))) {
+
+    noBootsDF <- tibble(Bird = birdSp, noBCR = BCR, noBoots = noBootsBCR)
+    write.csv(noBootsDF, paste0(fileCombinedRasters,"/noBootsDF.csv"))
+
+    } else {
+
+       noBootsDF <- read.csv(file.path(paste0(fileCombinedRasters,"/noBootsDF.csv")), header = TRUE)
+       noBootsDF <- noBootsDF %>% 
+         dplyr::select(Bird, noBCR, noBoots) %>%
+         add_row(Bird = birdSp, noBCR = as.integer(BCR), noBoots = noBootsBCR)  
+          
+       write.csv(noBootsDF, paste0(fileCombinedRasters,"/noBootsDF.csv"))
+       
+}
+ 
+ #confirm that a row has been added to the DF 
+ print(paste0("BCR", BCR, " row added to noBootsDF"))
+
+}
+
+```
+
+
+# Download/load bootstrapped bird rasters
+
+```{r functionDownloadBootRasters}
+
+downloadBootRasters <- function(folderUrl, 
+                                    birdSp, 
+                                    BCR,
+                                    rastersPath){
+
+     #check that there is a folder at the given rastersPath. if not, create it. 
+rastersPath <- checkPath(file.path(rastersPath), create = TRUE)
+
+  #drive_ls function is used to list all the files it finds using the folder url with the given pattern
+   filesToDownload <- googledrive::drive_ls( path = as_id(folderUrl), pattern = paste0("BCR_",BCR,"-boot-")) #note: has to be changed if filenaming system changes
+
+    #grepl function searches for all items in the filesToDownload that are onthe birdSp & stores their names in rastersforBirdList 
+  rastersList <- filesToDownload$name[grepl(pattern = paste(birdSp, collapse = "|"), x = filesToDownload$name)]
+  
+#for each item in turn from rastersList the following function is applied: 
+  downloadedRasters <- lapply(X = rastersList, FUN = function(rasterFile){
+
+    #if the item in rastersList is not already present at rastersPath, googledrive package downloads it    
+        if (!file.exists(file.path(rastersPath, rasterFile))){
+      googledrive::drive_download(file = as_id(filesToDownload[filesToDownload$name %in% rasterFile, ]$id), #rasterFile,
+                                  path = file.path(rastersPath, rasterFile), 
+                                  overwrite = TRUE)
+    }
+#otherwise, if it is already present and downloaded, just get the name of the item
+    return(raster(file.path(rastersPath, rasterFile), verbose = TRUE))
+  })
+
+#get the species codes and BCR as names for the downloadedRasters object, rather than using the whole filepath
+   X <- lapply(rastersList, substr, 9, 19) #works for strings of the form "pred250-XXXX_BCR_XX"
+   #X <- lapply(X, 
+               #if substr(X, 19, nchar(teststring)-1)
+   
+   #name the rasters
+   names(downloadedRasters) <- X
+
+  createNoBootDF(birdSp = birdSp, 
+                BCR = BCR,
+                downloadedRasters = downloadedRasters)
+   
+ return(downloadedRasters)
+   
+}
+
+```
+
+
+
+```{r createMeanVarRastersFunction}
+
+createMeanVarRasters <- function(birdSp,
+                                     BCRList,
+                                     folderUrl,
+                                     folderRawBoot){
+
+  #check there is a file to save created rasters and bootstrap numbers info to 
+  fileCombinedRasters <- checkPath(file.path(paste0(getwd(),"/meanVarRasters")), create = TRUE)
+  
+  
+BCRRasters <- lapply(BCRList, FUN = function(BCR){
+
+  downloadedRasters <- downloadBootRasters(folderUrl = folderUrl, 
+                                             birdSp = birdSp, 
+                                             BCR = BCR, 
+                                             rastersPath = folderRawBoot)
+
+downloadedRasterStack <- raster::stack(downloadedRasters)
+#noBootRasters <- length(downloadedRasterStack)
+
+#calculate mean raster 
+meanRaster <- calc(downloadedRasterStack, mean)
+
+#calculate variance raster 
+varRaster <- calc(downloadedRasterStack, stats::var)
+
+#combine mean and var rasters in raster stack
+meanVarRasterStack <- raster::stack(meanRaster,varRaster)
+
+
+print(paste0("BCR", BCR, " mean and variance rasters calculated"))
+
+return(meanVarRasterStack)
+#return(meanVarRasterStack)
+   })
+
+#return end product of function                     
+return(BCRRasters)
+
+  }
+```
+
+```{r callCreateBootFunction}
+
+BCRList <- c("9", "10", "11") #, "12", "4", "83", "82", "81", "80", "61", "71", "70", "14", "60")
+#rasterToMatch <- LandR::prepInputsLCC()
+birdSp <- "OVEN" #specify the bird species
+#BCR <- "4"
+folderRawBoot <- paste0(getwd(),"/folderRawBoot") #say where to download to
+folderUrl <- "https://drive.google.com/drive/folders/1f9NvoSSdHav8FqnswwPYuV0TFLr19ny5" # give file location 
+
+meanVarRasters <- createMeanVarRasters(birdSp = birdSp,
+                           BCRList = BCRList,
+                           folderUrl = folderUrl,
+                           folderRawBoot = folderRawBoot) 
+
+```
+
+```{r last bit}
+#mosaic the rasters of different BCRs together
+x <- as.list(BCRRasters)
+names(x)[1:2] <- c('x', 'y')
+x$fun <- mean
+x$na.rm <- TRUE
+y <- do.call(mosaic, x)
+names(y)[1:2] <- c(paste0('mean', birdSp), paste0('variance', birdSp))
+
+#save mean raster
+raster::writeRaster(y$paste0('mean', birdSp), filename = paste0(fileCombinedRasters,"/mean", birdSp,".tif"), format = 'GTiff')
+
+#save variance raster
+raster::writeRaster(y$paste0('variance', birdSp),filename = paste0(fileCombinedRasters,"/var", birdSp,".tif"), format = 'GTiff')
+
+#delete raw boot files from computer
+
+print(paste0(birdSp, " mosaic of mean and variance rasters completed and saved"))
+
+
+
+```
+
+
+
+
