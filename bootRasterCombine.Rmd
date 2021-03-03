@@ -183,7 +183,7 @@ return(mosaicedRasters)
 
 ```{r callCreateBootFunction}
 
-BCRList <- c("4", "10", "61", "60") #, "11", "12", "4", "83", "82", "81", "80", "71", "70", "14")
+BCRList <- c("10", "61", "60", "4") #, "11", "12", "4", "83", "82", "81", "80", "71", "70", "14")
 #rasterToMatch <- LandR::prepInputsLCC()
 birdSp <- "OVEN" #specify the bird species
 #BCR <- "4"
@@ -197,6 +197,13 @@ meanVarRasters <- createMeanVarRasters(birdSp = birdSp,
 
 ```
 
+# Things that still need to be added
+
+- upload the meanVarRasters and noBootsDF to a given googledrive folder
+- cropping/masking the rasters in postprocess before calc() because apparently some rasters of the same BCR and bird have different extents
+- deletion of folderRawBoot contents periodically, or is there a way of just loading the rasters straight from google drive without actually downloading them? 
+- extra l apply so multiple bird species can be given in bird list at once
+- something saying what to do if a BCR or bird sp doesnt exist.
 
 
 
