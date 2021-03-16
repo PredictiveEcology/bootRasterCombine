@@ -15,6 +15,5 @@
 # R Environment Variables
 .Renviron
 
-# data directories
-folderRawBoot/
-meanVarRasters/
+# simulation output directories
+outputs/

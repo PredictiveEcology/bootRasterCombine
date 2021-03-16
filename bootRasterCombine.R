@@ -12,13 +12,11 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = deparse(list("README.txt", "bootRasterCombine.Rmd")),
-  reqdPkgs = list("googledrive", "magrittr", "raster", "reproducible",
-                  "LandR", ## TODO: where is this used?
-                  "tibble", ## TODO: remove this package
-                  "dplyr" ## TODO: remove this package
+  reqdPkgs = list("future.apply", "googledrive", "raster", "reproducible", "qs",
+                  "PredictiveEcology/LandR"
   ),
   parameters = rbind(
-    #defineParameter("paramName", "paramClass", value, min, max, "parameter description"),
+    defineParameter("nCPU", "integer", parallel::detectCores() / 4, NA, NA, "parameter description"),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -32,15 +30,23 @@ defineModule(sim, list(
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
-                          "and time are not relevant"))
+                          "and time are not relevant")),
+    defineParameter(".useFuture", "logical", TRUE, NA, NA,
+                    paste("Should future be used for download/upload and GIS tasks?",
+                          "If TRUE, uses future plan 'multicore'.")),
+    defineParameter(".verbose", "logical", TRUE, NA, NA, "Should additonal info messages be printed?")
   ),
   inputObjects = bindrows(
-    #expectsInput("objectName", "objectClass", "input object description", sourceURL, ...),
-    expectsInput(objectName = NA, objectClass = NA, desc = NA, sourceURL = NA)
+    expectsInput(objectName = "rasterToMatch", objectClass = "RasterLayer",
+                 desc = "raster to match. default LCC2005.", sourceURL = NA),
+    expectsInput(objectName = "studyArea", objectClass = "SpatialPolygonsDataFrame",
+                 desc = "study area polygon", sourceURL = NA) ## TODO: need default studyArea polygon
   ),
   outputObjects = bindrows(
-    #createsOutput("objectName", "objectClass", "output object description", ...),
-    createsOutput(objectName = NA, objectClass = NA, desc = NA)
+    createsOutput(objectName = "bootRasters", objectClass = "character",
+                  desc = "vector of relative paths to the downloaded bootstrap raster files"),
+    createsOutput(objectName = "bootstrapReplicates", objectClass = "data.table",
+                  desc = "summary of the number of bootstrap replicates per BCR and bird species")
   )
 ))
 
@@ -58,62 +64,22 @@ doEvent.bootRasterCombine = function(sim, eventTime, eventType) {
       sim <- Init(sim)
 
       # schedule future event(s)
-      sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "bootRasterCombine", "plot")
-      sim <- scheduleEvent(sim, P(sim)$.saveInitialTime, "bootRasterCombine", "save")
+      sim <- scheduleEvent(sim, start(sim), "bootRasterCombine", "download", .highest())
+      sim <- scheduleEvent(sim, start(sim), "bootRasterCombine", "meanvar", .normal())
+      sim <- scheduleEvent(sim, start(sim), "bootRasterCombine", "mosaic", .normal())
+      sim <- scheduleEvent(sim, end(sim), "bootRasterCombine", "upload", .lowest())
     },
-    plot = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
-
-      plotFun(sim) # example of a plotting function
-      # schedule future event(s)
-
-      # e.g.,
-      #sim <- scheduleEvent(sim, time(sim) + P(sim)$.plotInterval, "bootRasterCombine", "plot")
-
-      # ! ----- STOP EDITING ----- ! #
+    download = {
+      sim <- doDownload(sim)
     },
-    save = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
-
-      # e.g., call your custom functions/methods here
-      # you can define your own methods below this `doEvent` function
-
-      # schedule future event(s)
-
-      # e.g.,
-      # sim <- scheduleEvent(sim, time(sim) + P(sim)$.saveInterval, "bootRasterCombine", "save")
-
-      # ! ----- STOP EDITING ----- ! #
+    meanvar = {
+      sim <- doMeanVar(sim)
     },
-    event1 = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
-
-      # e.g., call your custom functions/methods here
-      # you can define your own methods below this `doEvent` function
-
-      # schedule future event(s)
-
-      # e.g.,
-      # sim <- scheduleEvent(sim, time(sim) + increment, "bootRasterCombine", "templateEvent")
-
-      # ! ----- STOP EDITING ----- ! #
+    mosaic = {
+      sim <- doMosaic(sim)
     },
-    event2 = {
-      # ! ----- EDIT BELOW ----- ! #
-      # do stuff for this event
-
-      # e.g., call your custom functions/methods here
-      # you can define your own methods below this `doEvent` function
-
-      # schedule future event(s)
-
-      # e.g.,
-      # sim <- scheduleEvent(sim, time(sim) + increment, "bootRasterCombine", "templateEvent")
-
-      # ! ----- STOP EDITING ----- ! #
+    upload = {
+      sim <- doUpload(sim)
     },
     warning(paste("Undefined event type: \'", current(sim)[1, "eventType", with = FALSE],
                   "\' in module \'", current(sim)[1, "moduleName", with = FALSE], "\'", sep = ""))
@@ -127,80 +93,251 @@ doEvent.bootRasterCombine = function(sim, eventTime, eventType) {
 ### template initialization
 Init <- function(sim) {
   # # ! ----- EDIT BELOW ----- ! #
+  dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
+
+  ## there are >12k files, so stash a local copy of the drive_ls result, and use it when available
+  bootPattern <- "BCR_.*-boot-.*"
+  f <- file.path(dPath, "gdrive_ls_cache.qs")
+  mod$filesToDownload <- if (file.exists(f)) {
+    filesToDownload <- qs::qload(f, env = environment())
+    if (is(filesToDownload, "environment")) {
+      filesToDownload <- as_dribble(filesToDownload$drive_resource)
+    }
+    filesToDownload
+  } else {
+    folderUrl <- "https://drive.google.com/drive/folders/1f9NvoSSdHav8FqnswwPYuV0TFLr19ny5"
+    filesToDownload <- drive_ls(path = as_id(folderUrl), pattern = bootPattern)
+    qs::qsave(filesToDownload, f)
+    filesToDownload
+  }
 
   # ! ----- STOP EDITING ----- ! #
 
   return(invisible(sim))
 }
 
-### template for save events
-Save <- function(sim) {
+doDownload <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
-  # do stuff for this event
-  sim <- saveFiles(sim)
+  dPath <- asPath(checkPath(file.path(getOption("reproducible.destinationPath", dataPath(sim))), create = TRUE), 1)
+  rPath <- asPath(checkPath(file.path(dPath, "rawBootRasters"), create = TRUE), 1)
 
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
+  ## check available disk space (GB)
+  availDiskSpace <- disk.usage(rPath)[[2]] %>% revText(.) %>% substring(., 2) %>% revText(.) %>% as.numeric()
+  if (availDiskSpace < 335) {
+    stop("Downloading all raw bootstrap raster files requires 335 GB of disk space, ",
+         "but only ", availDiskSpace, " GB is available at location:\n", rPath)
+  }
 
-### template for plot events
-plotFun <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  # do stuff for this event
-  sampleData <- data.frame("TheSample" = sample(1:10, replace = TRUE))
-  Plots(sampleData, fn = ggplotFn)
+  z <- getOption("future.globals.maxSize")
+  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
+  on.exit(options(future.globals.maxSize = z, add = TRUE))
 
-  # ! ----- STOP EDITING ----- ! #
-  return(invisible(sim))
-}
-
-### template for your event1
-Event1 <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-
-  ## TODO:
-  BCRList <- c("61", "60", "4", "10") #, "11", "12", "4", "83", "82", "81", "80", "71", "70", "14")
-  #rasterToMatch <- LandR::prepInputsLCC()
-  birdSp <- "BAWW" ## specify the bird species
-  #BCR <- "4"
-  folderRawBoot <- "folderRawBoot" ## say where to download to ## TODO: rename directory
-  folderUrl <- "https://drive.google.com/drive/folders/1f9NvoSSdHav8FqnswwPYuV0TFLr19ny5" # give file location
-  uploadFolder <- "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA"
+  if (isTRUE(P(sim)$.useFuture)) {
+    plan("multicore")
+  } else (
+    plan("sequential")
+  )
 
   ## 1. download boostrapped rasters
-  # TODO: currently being done as part of creatMEanVarRasters() below
-  #       this should be done beforehand and cached for future use
+  filesToDownload <- mod$filesToDownload
+  chunkSize <- ceiling(nrow(filesToDownload) / P(sim)$nCPU)
+  res <- future_apply(filesToDownload, 1, function(f) {
+    if (file.exists(file.path(rPath, f$name))) {
+      TRUE
+    } else {
+      tryCatch({
+        fname <- file.path(rPath, f[["name"]])
+        drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)
+        file.exists(fname)
+      }, error = function(e) FALSE)
+    }
+  }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive",
+  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  names(res) <- filesToDownload[["name"]]
 
-  ## 2. create mean and variance rasters
-  meanVarRasters <- createMeanVarRasters(birdSp = birdSp, BCRList = BCRList, folderUrl = folderUrl,
-                                         folderRawBoot = folderRawBoot, uploadFolder = uploadFolder)
+  if (any(isFALSE(res))) {
+    scheduleEvent(sim, start(sim), "bootRasterCombine", "download", .highest())
+  }
 
-  ## 3. upload outputs
-  drive_put(media = file.path(paste0(getwd(),"/meanVarRasters/var", birdSp,".tif")),
-            path = "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA?usp=sharing",
-            name = paste0("var", birdSp, ".tif"),
-            verbose = TRUE)
+  sim$bootRasters <- file.path(rPath, filesToDownload[["name"]])
 
+  mod$BCRs <- basename(sim$bootRasters) %>% strsplit(., "_") %>% vapply(., `[[`, character(1), 2) %>%
+    strsplit(., "-") %>% vapply(., `[[`, character(1), 1) %>% unique(.) %>% as.integer(.)
+  mod$birdSpp <- unique(substr(basename(sim$bootRasters), 9, 12))
+  mod$mPath <- checkPath(file.path(outputPath(sim), "meanRasters"), create = TRUE)
+  mod$vPath <- checkPath(file.path(outputPath(sim), "varRasters"), create = TRUE)
 
+  # ! ----- STOP EDITING ----- ! #
+
+  return(invisible(sim))
+}
+
+doGIS <- function(sim) {
+  # ! ----- EDIT BELOW ----- ! #
+  z <- getOption("future.globals.maxSize")
+  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
+  on.exit(options(future.globals.maxSize = z, add = TRUE))
+
+  if (isTRUE(P(sim)$.useFuture)) {
+    plan("multicore")
+  } else (
+    plan("sequential")
+  )
+
+  ## TODO: prepInputs / postProcess all the raw bootstrapped rasters to rasterToMatch / studyArea
+
+  # ! ----- STOP EDITING ----- ! #
+
+  return(invisible(sim))
+}
+
+doMeanVar <- function(sim) {
+  # ! ----- EDIT BELOW ----- ! #
+  z <- getOption("future.globals.maxSize")
+  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
+  on.exit(options(future.globals.maxSize = z, add = TRUE))
+
+  if (isTRUE(P(sim)$.useFuture)) {
+    plan("multicore")
+  } else (
+    plan("sequential")
+  )
+
+  BCRs <- mod$BCRs
+  birdSpp <- mod$birdSpp
+  bootRasters <- sim$bootRasters
+  chunkSize <- ceiling(length(BCRs) / P(sim)$nCPU)
+  nBCRs <- future_lapply(BCRs, function(bcr) {
+    nBirds <- lapply(birdSpp, function(bird) {
+      f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
+
+      ## 2. create mean and variance rasters for each BCR x birdSpp
+      stk <- raster::stack(f)
+
+      meanRaster <- raster::calc(stk, mean)
+      writeRaster(meanRaster, file.path(mod$mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
+                  overwrite = TRUE)
+
+      varRaster <- raster::calc(stk, stats::var)
+      writeRaster(varRaster, file.path(mod$vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
+                  overwrite = TRUE)
+
+      ## 2a. determine number of bootstrap samples per bird x BCR
+      length(f)
+    })
+    names(nBirds) <- birdSpp
+
+    data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
+  }, future.globals = c("BCRs", "birdSpp", "bootRasters"), future.packages = "raster",
+  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  names(nBCRs) <- as.character(mod$BCRs)
+
+  ## 2b. create data.table with number of bootstrap replicates
+  sim$bootstrapReplicates <- rbindlist(nBCRs)
+  fwrite(sim$sim$bootstrapReplicates, file.path(dirname(dPath), "bootstrap_replicates.csv"))
+
+  # ! ----- STOP EDITING ----- ! #
+
+  return(invisible(sim))
+}
+
+doMosaic <- function(sim) {
+  # ! ----- EDIT BELOW ----- ! #
+  z <- getOption("future.globals.maxSize")
+  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
+  on.exit(options(future.globals.maxSize = z, add = TRUE))
+
+  if (isTRUE(P(sim)$.useFuture)) {
+    plan("multicore")
+  } else (
+    plan("sequential")
+  )
+  chunkSize <- ceiling(length(mod$birdSpp) / P(sim)$nCPU)
+  birdSpp <- mod$birdSpp
+  mPath <- mod$mPath
+  vPath <- mod$vPath
+  oPath <- outputPath(sim)
+  res <- future_lapply(birdSpp, function(bird) {
+    mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif"))
+    vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif"))
+
+    mMosaic <- raster::mosaic(mRasters, fun = mean, na.rm = TRUE,
+                              filename = file.path(oPath, paste0("mosaic_mean_", bird, ".tif")))
+    vMosaic <- raster::mosaic(vRasters, fun = mean, na.rm = TRUE,
+                              filename = file.path(oPath, paste0("mosaic_var_", bird, ".tif")))
+  }, future.globals = c("birdSpp", "mPath", "oPath", "vPath"), future.packages = "raster",
+  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  names(res) <- birdSpp
+
+  ## TODO: keep the lists of output rasters in the simList, or can we simply `dir()` downstream?
+
+  # ! ----- STOP EDITING ----- ! #
+
+  return(invisible(sim))
+}
+
+doUpload <- function(sim) {
+  # ! ----- EDIT BELOW ----- ! #
+  z <- getOption("future.globals.maxSize")
+  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
+  on.exit(options(future.globals.maxSize = z, add = TRUE))
+
+  if (isTRUE(P(sim)$.useFuture)) {
+    plan("multicore")
+  } else (
+    plan("sequential")
+  )
+
+  uploadURL <- "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA"
+  verbose <- isTRUE(P(sim)$.verbose)
+
+  ## mean and var rasters
+  filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
+  chunkSize <- ceiling(nrow(filesToUpload) / P(sim)$nCPU)
+  res1 <- future_lapply(filesToUpload, function(f) {
+    ## TODO: only upload new files?? use drive_update() to update existing ones
+    drive_put(media = f, path = uploadURL, name = basename(f), verbose = verbose)
+  }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive",
+  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  names(res1) <- filesToUpload
+
+  if (any(isFALSE(res1)) | any(isFALSE(res2))) {
+    scheduleEvent(sim, start(sim), "bootRasterCombine", "upload")
+  }
+
+  ## csv of bootstrap repilcates
+  csvFile <- file.path(dPath, "bootstrap_replicates.csv")
+  drive_update(media = csvFile, file = csvURL, name = "noBootsDF.csv", verbose = verbose)
 
   # ! ----- STOP EDITING ----- ! #
   return(invisible(sim))
 }
 
 .inputObjects <- function(sim) {
-  cacheTags <- c(currentModule(sim), "function:.inputObjects") ## uncomment this if Cache is being used
+  cacheTags <- c(currentModule(sim), "function:.inputObjects")
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
   message(currentModule(sim), ": using dataPath '", dPath, "'.")
 
+  mod$targetCRS <- paste("+proj=lcc +lat_1=49 +lat_2=77 +lat_0=0 +lon_0=-95",
+                         "+x_0=0 +y_0=0 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
+
   # ! ----- EDIT BELOW ----- ! #
+  if (!suppliedElsewhere("studyArea")) {
+    bcrzip <- "https://www.birdscanada.org/download/gislab/bcr_terrestrial_shape.zip"
+    bcrshp <- Cache(prepInputs,
+                    url = bcrzip,
+                    destinationPath = dPath,
+                    targetCRS = mod$targetCRS,
+                    fun = "sf::st_read")
+
+    sim$studyArea <- bcrshp[bcrshp$BCR == 11, ] ## 10 and 11 are relatively small
+  }
+
+  if (!suppliedElsewhere("rasterToMatch")) {
+    sim$rasterToMatch <- LandR::prepInputsLCC(year = 2005, destinationPath = dPath,
+                                              studyArea = sim$studyArea, filename2 = NULL)
+  }
 
   # ! ----- STOP EDITING ----- ! #
   return(invisible(sim))
 }
-
-ggplotFn <- function(data, ...) {
-  ggplot(data, aes(TheSample)) +
-    geom_histogram(...)
-}
-
-### add additional events as needed by copy/pasting from above

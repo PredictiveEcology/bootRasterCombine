@@ -1,7 +1,7 @@
 ---
 title: "bootRasterCombine"
 author: "Alex M. Chubaty and Isolde Lane-Shaw"
-date: "10 March 2021"
+date: "15 March 2021"
 output: html_document
 editor_options:
   chunk_output_type: console
@@ -24,24 +24,26 @@ This is a template for module documentation, and should be changed to reflect yo
 library("Require")
 Require("SpaDES.core")
 
-setPaths(modulePath = file.path(".."))
-getPaths() # shows where the relevant paths are
+setPaths(modulePath = file.path(".."),
+         inputPath = "data",
+         outputPath = "outputs")
 
 times <- list(start = 0, end = 1)
 
 parameters <- list(
-  #.progress = list(type = "text", interval = 1), # for a progress bar
-  ## If there are further modules, each can have its own set of parameters:
-  #module1 = list(param1 = value1, param2 = value2),
-  #module2 = list(param1 = value1, param2 = value2)
+  bootRasterCombine = list(
+    nCPU = parallel::detectCores() / 4,
+    .useCache = FALSE, ## TODO: use cache later
+    .useFuture = TRUE,
+    .verbose = TRUE
+  )
 )
 modules <- list("bootRasterCombine")
 objects <- list()
 inputs <- list()
 outputs <- list()
 
-mySim <- simInit(times = times, params = parameters, modules = modules, objects = objects)
-mySimOut <- spades(mySim)
+mySimOut <- simInitAndSpades(times = times, params = parameters, modules = modules, objects = objects)
 ```
 
 # Parameters
@@ -57,13 +59,33 @@ knitr::kable(df_params)
 
 Describe what happens for each event type.
 
-## Plotting
+## Init
 
-Write what is plotted.
+Fetches the complete list of raw bootstrap raster files from Google Drive, saving a copy to disk.
+Subsequent runs on the same machine will use this local stashed copy, so no additional downloads are needed.
+If the Google Drive folder contents are updated, simply delete the `gdrive_ls_cache.qs` file in the module's data directory, and rerun the module to fetch the updated list.
 
-## Saving
+## Download
 
-Write what is saved.
+Downloads all the raw bootstrap raster files from the Google Drive location.
+*WARNING: total uncompressed size of all these files is ~330 GB.*
+
+## GIS
+
+All rasters cropped, reprojected, masked using `rasterToMatch` and `studyArea`.
+*WARNING: this also requires substantial disk space, based on size of study area.*
+
+## Calculate mean and variance
+
+Calculated per species across all BCRs.
+
+## Mosaic
+
+Mosaic all mean/var rasters across BCRs per bird species into a single `rasterLayer`.
+
+## Upload
+
+Upload the resulting mosaicked rasters to Google Drive.
 
 # Data dependencies
 
@@ -89,20 +111,4 @@ knitr::kable(df_outputs)
 # Links to other modules
 
 This module prepares data layers for use with BAM posthoc binning module.
-
-# TODO
-
-- overview of what each of these pieces is trying to achieve and why they are being done in a certain way
-    - describe the raw data (rasters), including file sizes, number of files, extents, general format etc.
-    - where is GDAL being used? can we process these in memory?
-    - can we parallelize? (if no, why not?)
-    - what is the final desired 'output'? what species are needed?
-- because only needs to be run once, cache cache cache!
-- cropping/masking the rasters in postprocess before `calc()` because apparently some rasters of the same BCR and bird have different extents
-- deletion of `folderRawBoot` contents periodically, or is there a way of just loading the rasters straight from google drive without actually downloading them?
-    - why would you want to do this? this forces you to redownload files each time.
-- extra `lapply` so multiple bird species can be given in bird list at once
-- something saying what to do if a BCR or bird sp doesn't exist.
-- what is with this error message that pops up sometimes but not other times??? Error in curl::curl_fetch_disk(url, x$path, handle = handle) : 
-  OpenSSL SSL_read: Connection reset by peer, errno 104
-
+<!-- TODO: add link to repo -->
