@@ -205,19 +205,22 @@ browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
+  mPath <- mod$mPath
+  vPath <- mod$vPath
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
       f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
       stopifnot(all(file.exists(f)))
+
       ## 2. create mean and variance rasters for each BCR x birdSpp
       stk <- raster::stack(f)
 
       meanRaster <- raster::calc(stk, mean)
-      writeRaster(meanRaster, file.path(mod$mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
+      writeRaster(meanRaster, file.path(mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
                   overwrite = TRUE)
 
       varRaster <- raster::calc(stk, stats::var)
-      writeRaster(varRaster, file.path(mod$vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
+      writeRaster(varRaster, file.path(vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
                   overwrite = TRUE)
 
       ## 2a. determine number of bootstrap samples per bird x BCR
@@ -226,7 +229,8 @@ browser()
     names(nBirds) <- birdSpp
 
     data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
-  }, future.globals = c("BCRs", "birdSpp", "bootRasters"), future.packages = "raster", future.seed = TRUE)
+  }, future.globals = c("BCRs", "birdSpp", "bootRasters", "mPath", "vPath"),
+  future.packages = "raster", future.seed = TRUE)
   names(nBCRs) <- as.character(mod$BCRs)
 
   ## 2b. create data.table with number of bootstrap replicates
