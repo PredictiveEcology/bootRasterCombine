@@ -16,9 +16,9 @@ defineModule(sim, list(
                   "PredictiveEcology/LandR"
   ),
   parameters = rbind(
-    defineParameter("nCPU", "integer", parallel::detectCores() / 4, NA, NA, "parameter description"),
+    defineParameter("cl", "cluster", NULL, NA, NA, "cluster object created using 'parallel:makeCluster()'."),
     defineParameter(".plots", "character", "screen", NA, NA,
-                    "Used by Plots function, which can be optionally used here"),
+                    "Used by Plots function, which can be optionally used here."),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
                     "Describes the simulation time at which the first plot event should occur."),
     defineParameter(".plotInterval", "numeric", NA, NA, NA,
@@ -40,7 +40,7 @@ defineModule(sim, list(
     expectsInput(objectName = "rasterToMatch", objectClass = "RasterLayer",
                  desc = "raster to match. default LCC2005.", sourceURL = NA),
     expectsInput(objectName = "studyArea", objectClass = "SpatialPolygonsDataFrame",
-                 desc = "study area polygon", sourceURL = NA) ## TODO: need default studyArea polygon
+                 desc = "study area polygon", sourceURL = NA)
   ),
   outputObjects = bindrows(
     createsOutput(objectName = "bootRasters", objectClass = "character",
@@ -133,14 +133,13 @@ doDownload <- function(sim) {
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
   if (isTRUE(P(sim)$.useFuture)) {
-    plan("multicore")
+    plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
 
   ## 1. download boostrapped rasters
   filesToDownload <- mod$filesToDownload
-  chunkSize <- ceiling(nrow(filesToDownload) / P(sim)$nCPU)
   res <- future_apply(filesToDownload, 1, function(f) {
     if (file.exists(file.path(rPath, f$name))) {
       TRUE
@@ -151,8 +150,7 @@ doDownload <- function(sim) {
         file.exists(fname)
       }, error = function(e) FALSE)
     }
-  }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive",
-  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive")
   names(res) <- filesToDownload[["name"]]
 
   if (any(isFALSE(res))) {
@@ -179,7 +177,7 @@ doGIS <- function(sim) {
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
   if (isTRUE(P(sim)$.useFuture)) {
-    plan("multicore")
+    plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
@@ -198,19 +196,19 @@ doMeanVar <- function(sim) {
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
   if (isTRUE(P(sim)$.useFuture)) {
-    plan("multicore")
+    plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
 
+browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
-  chunkSize <- ceiling(length(BCRs) / P(sim)$nCPU)
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
       f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
-
+      stopifnot(all(file.exists(f)))
       ## 2. create mean and variance rasters for each BCR x birdSpp
       stk <- raster::stack(f)
 
@@ -228,8 +226,7 @@ doMeanVar <- function(sim) {
     names(nBirds) <- birdSpp
 
     data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
-  }, future.globals = c("BCRs", "birdSpp", "bootRasters"), future.packages = "raster",
-  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  }, future.globals = c("BCRs", "birdSpp", "bootRasters"), future.packages = "raster", future.seed = TRUE)
   names(nBCRs) <- as.character(mod$BCRs)
 
   ## 2b. create data.table with number of bootstrap replicates
@@ -248,11 +245,12 @@ doMosaic <- function(sim) {
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
   if (isTRUE(P(sim)$.useFuture)) {
-    plan("multicore")
+    plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
-  chunkSize <- ceiling(length(mod$birdSpp) / P(sim)$nCPU)
+
+browser()
   birdSpp <- mod$birdSpp
   mPath <- mod$mPath
   vPath <- mod$vPath
@@ -265,8 +263,7 @@ doMosaic <- function(sim) {
                               filename = file.path(oPath, paste0("mosaic_mean_", bird, ".tif")))
     vMosaic <- raster::mosaic(vRasters, fun = mean, na.rm = TRUE,
                               filename = file.path(oPath, paste0("mosaic_var_", bird, ".tif")))
-  }, future.globals = c("birdSpp", "mPath", "oPath", "vPath"), future.packages = "raster",
-  future.chunk.size = chunkSize, future.scheduling = 1.0)
+  }, future.globals = c("birdSpp", "mPath", "oPath", "vPath"), future.packages = "raster", future.seed = TRUE)
   names(res) <- birdSpp
 
   ## TODO: keep the lists of output rasters in the simList, or can we simply `dir()` downstream?
@@ -283,25 +280,24 @@ doUpload <- function(sim) {
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
   if (isTRUE(P(sim)$.useFuture)) {
-    plan("multicore")
+    plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
 
+browser()
   uploadURL <- "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA"
   verbose <- isTRUE(P(sim)$.verbose)
 
   ## mean and var rasters
   filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
-  chunkSize <- ceiling(nrow(filesToUpload) / P(sim)$nCPU)
-  res1 <- future_lapply(filesToUpload, function(f) {
+  res <- future_lapply(filesToUpload, function(f) {
     ## TODO: only upload new files?? use drive_update() to update existing ones
     drive_put(media = f, path = uploadURL, name = basename(f), verbose = verbose)
-  }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive",
-  future.chunk.size = chunkSize, future.scheduling = 1.0)
-  names(res1) <- filesToUpload
+  }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
+  names(res) <- filesToUpload
 
-  if (any(isFALSE(res1)) | any(isFALSE(res2))) {
+  if (any(isFALSE(res))) {
     scheduleEvent(sim, start(sim), "bootRasterCombine", "upload")
   }
 
@@ -318,10 +314,10 @@ doUpload <- function(sim) {
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
   message(currentModule(sim), ": using dataPath '", dPath, "'.")
 
+  # ! ----- EDIT BELOW ----- ! #
   mod$targetCRS <- paste("+proj=lcc +lat_1=49 +lat_2=77 +lat_0=0 +lon_0=-95",
                          "+x_0=0 +y_0=0 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0")
 
-  # ! ----- EDIT BELOW ----- ! #
   if (!suppliedElsewhere("studyArea")) {
     bcrzip <- "https://www.birdscanada.org/download/gislab/bcr_terrestrial_shape.zip"
     bcrshp <- Cache(prepInputs,
