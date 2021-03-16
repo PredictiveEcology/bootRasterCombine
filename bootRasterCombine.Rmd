@@ -22,7 +22,7 @@ This is a template for module documentation, and should be changed to reflect yo
 
 ```{r module_usage}
 library("Require")
-Require("SpaDES.core")
+Require("PredictiveEcology/SpaDES.core@development")
 
 setPaths(modulePath = file.path(".."),
          inputPath = "data",
