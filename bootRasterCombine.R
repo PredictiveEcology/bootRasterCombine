@@ -27,6 +27,8 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
+    defineParameter("scratchDir", "character", tempdir(), NA, NA,
+                    "Single path to a directory to use as scratch location for raster operations."),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
@@ -147,14 +149,20 @@ doDownload <- function(sim) {
       tryCatch({
         fname <- file.path(rPath, f[["name"]])
         drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)
-        file.exists(fname)
+        tryCatch({
+          raster::raster(fname)
+          TRUE
+        }, error = function(e) {
+          unlink(fname, force = TRUE)
+          FALSE
+        })
       }, error = function(e) FALSE)
     }
   }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive")
   names(res) <- filesToDownload[["name"]]
 
   if (any(isFALSE(res))) {
-    scheduleEvent(sim, start(sim), "bootRasterCombine", "download", .highest())
+    scheduleEvent(sim, time(sim), "bootRasterCombine", "download", .highest())
   }
 
   sim$bootRasters <- file.path(rPath, filesToDownload[["name"]])
@@ -207,10 +215,14 @@ browser()
   bootRasters <- sim$bootRasters
   mPath <- mod$mPath
   vPath <- mod$vPath
+  scratchDir <- P(sim)$scratchDir
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
       f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
       stopifnot(all(file.exists(f)))
+
+      raster::rasterOptions(default = TRUE)
+      options(rasterTmpDir = scratchDir)
 
       ## 2. create mean and variance rasters for each BCR x birdSpp
       stk <- raster::stack(f)
@@ -297,7 +309,7 @@ browser()
   filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
   res <- future_lapply(filesToUpload, function(f) {
     ## TODO: only upload new files?? use drive_update() to update existing ones
-    drive_put(media = f, path = uploadURL, name = basename(f), verbose = verbose)
+    retry(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE))
   }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
   names(res) <- filesToUpload
 

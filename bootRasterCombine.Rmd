@@ -11,6 +11,13 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE, results = "hold")
 ```
 
+```{r packages}
+library("Require")
+Require("PredictiveEcology/reproducible@development")
+Require("PredictiveEcology/SpaDES.core@development")
+Require("PredictiveEcology/LandR@development", require = FALSE)
+```
+
 # Overview
 
 Provide an overview of what the module does / how to use the module.
@@ -20,19 +27,31 @@ This is a template for module documentation, and should be changed to reflect yo
 
 # Usage
 
-```{r module_usage}
-library("Require")
-Require("PredictiveEcology/SpaDES.core@development")
+```{r module_usage, eval = FALSE}
+scratchDir <- checkPath("~/scratch/bootRasterCombine", create = TRUE)
 
-setPaths(modulePath = file.path(".."),
-         inputPath = "data",
-         outputPath = "outputs")
+raster::rasterOptions(default = TRUE)
+options(
+  rasterMaxMemory = 5e+12,
+  rasterTmpDir = scratchDir,
+  reproducible.cacheSaveFormat = "qs"
+)
+
+
+setPaths(
+  cachePath = checkPath("cache"),
+  modulePath = file.path(".."),
+  inputPath = "data",
+  outputPath = "outputs"
+)
 
 times <- list(start = 0, end = 1)
 
+cl <- parallel::makeCluster(parallel::detectCores() / 2)
 parameters <- list(
   bootRasterCombine = list(
-    cl = parallel::makeCluster(parallel::detectCores() / 4),
+    cl = cl,
+    scratchDir = scratchDir,
     .useCache = FALSE, ## TODO: use cache later
     .useFuture = TRUE,
     .verbose = TRUE
@@ -112,5 +131,4 @@ knitr::kable(df_outputs)
 
 # Links to other modules
 
-This module prepares data layers for use with BAM posthoc binning module.
-<!-- TODO: add link to repo -->
+This module prepares data layers for use with BAM posthoc binning module (<https://github.com/ilaneshaw/postHocBinning>).
