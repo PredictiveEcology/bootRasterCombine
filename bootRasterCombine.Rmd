@@ -2,7 +2,9 @@
 title: "bootRasterCombine"
 author: "Alex M. Chubaty and Isolde Lane-Shaw"
 date: "15 March 2021"
-output: html_document
+output: 
+  html_document: 
+    keep_md: yes
 editor_options:
   chunk_output_type: console
 ---
