@@ -146,7 +146,8 @@ doDownload <- function(sim) {
     } else {
       tryCatch({
         fname <- file.path(rPath, f[["name"]])
-        drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)
+        retry(quote(drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)),
+                    retries = 5, exponentialDecayBase = 2)
         file.exists(fname)
       }, error = function(e) FALSE)
     }
@@ -292,8 +293,8 @@ browser()
   ## mean and var rasters
   filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
   res <- future_lapply(filesToUpload, function(f) {
-    ## TODO: only upload new files?? use drive_update() to update existing ones
-    drive_put(media = f, path = uploadURL, name = basename(f), verbose = verbose)
+    retry(quote(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE)),
+          retries = 5, exponentialDecayBase = 2)
   }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
   names(res) <- filesToUpload
 
