@@ -16,4 +16,5 @@
 .Renviron
 
 # simulation output directories
+cache
 outputs/

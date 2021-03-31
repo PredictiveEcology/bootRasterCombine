@@ -27,6 +27,8 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
+    defineParameter("scratchDir", "character", tempdir(), NA, NA,
+                    "Single path to a directory to use as scratch location for raster operations."),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
@@ -148,14 +150,20 @@ doDownload <- function(sim) {
         fname <- file.path(rPath, f[["name"]])
         retry(quote(drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)),
                     retries = 5, exponentialDecayBase = 2)
-        file.exists(fname)
+        tryCatch({
+          raster::raster(fname)
+          TRUE
+        }, error = function(e) {
+          unlink(fname, force = TRUE)
+          FALSE
+        })
       }, error = function(e) FALSE)
     }
   }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive")
   names(res) <- filesToDownload[["name"]]
 
   if (any(isFALSE(res))) {
-    scheduleEvent(sim, start(sim), "bootRasterCombine", "download", .highest())
+    scheduleEvent(sim, time(sim), "bootRasterCombine", "download", .highest())
   }
 
   sim$bootRasters <- file.path(rPath, filesToDownload[["name"]])
@@ -206,19 +214,26 @@ browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
+  mPath <- mod$mPath
+  vPath <- mod$vPath
+  scratchDir <- P(sim)$scratchDir
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
       f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
       stopifnot(all(file.exists(f)))
+
+      raster::rasterOptions(default = TRUE)
+      options(rasterTmpDir = scratchDir)
+
       ## 2. create mean and variance rasters for each BCR x birdSpp
       stk <- raster::stack(f)
 
       meanRaster <- raster::calc(stk, mean)
-      writeRaster(meanRaster, file.path(mod$mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
+      writeRaster(meanRaster, file.path(mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
                   overwrite = TRUE)
 
       varRaster <- raster::calc(stk, stats::var)
-      writeRaster(varRaster, file.path(mod$vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
+      writeRaster(varRaster, file.path(vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
                   overwrite = TRUE)
 
       ## 2a. determine number of bootstrap samples per bird x BCR
@@ -227,7 +242,8 @@ browser()
     names(nBirds) <- birdSpp
 
     data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
-  }, future.globals = c("BCRs", "birdSpp", "bootRasters"), future.packages = "raster", future.seed = TRUE)
+  }, future.globals = c("BCRs", "birdSpp", "bootRasters", "mPath", "vPath"),
+  future.packages = "raster", future.seed = TRUE)
   names(nBCRs) <- as.character(mod$BCRs)
 
   ## 2b. create data.table with number of bootstrap replicates
@@ -293,6 +309,7 @@ browser()
   ## mean and var rasters
   filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
   res <- future_lapply(filesToUpload, function(f) {
+    ## TODO: only upload new files?? use drive_update() to update existing ones
     retry(quote(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE)),
           retries = 5, exponentialDecayBase = 2)
   }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
