@@ -12,8 +12,8 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = deparse(list("README.txt", "bootRasterCombine.Rmd")),
-  reqdPkgs = list("future.apply", "googledrive", "raster", "reproducible", "qs",
-                  "PredictiveEcology/LandR"
+  reqdPkgs = list(
+    "future.apply", "googledrive", "raster", "reproducible", "qs", "PredictiveEcology/LandR"
   ),
   parameters = rbind(
     defineParameter("cl", "cluster", NULL, NA, NA, "cluster object created using 'parallel:makeCluster()'."),
@@ -34,8 +34,8 @@ defineModule(sim, list(
                           "This is generally intended for data-type modules, where stochasticity",
                           "and time are not relevant")),
     defineParameter(".useFuture", "logical", TRUE, NA, NA,
-                    paste("Should future be used for download/upload and GIS tasks?",
-                          "If TRUE, uses future plan 'multicore'.")),
+                    paste("Should future be used for raster processing tasks?",
+                          "If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.")),
     defineParameter(".verbose", "logical", TRUE, NA, NA, "Should additonal info messages be printed?")
   ),
   inputObjects = bindrows(
@@ -130,19 +130,9 @@ doDownload <- function(sim) {
          "but only ", availDiskSpace, " GB is available at location:\n", rPath)
   }
 
-  z <- getOption("future.globals.maxSize")
-  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
-  on.exit(options(future.globals.maxSize = z, add = TRUE))
-
-  if (isTRUE(P(sim)$.useFuture)) {
-    plan("cluster", workers = P(sim)$cl)
-  } else (
-    plan("sequential")
-  )
-
   ## 1. download boostrapped rasters
   filesToDownload <- mod$filesToDownload
-  res <- future_apply(filesToDownload, 1, function(f) {
+  res <- apply(filesToDownload, 1, function(f) {
     if (file.exists(file.path(rPath, f$name))) {
       TRUE
     } else {
@@ -158,39 +148,20 @@ doDownload <- function(sim) {
         })
       }, error = function(e) FALSE)
     }
-  }, future.globals = c("rPath", "filesToDownload"), future.packages = "googledrive")
+  })
   names(res) <- filesToDownload[["name"]]
 
   if (any(isFALSE(res))) {
     scheduleEvent(sim, time(sim), "bootRasterCombine", "download", .highest())
   }
 
-  sim$bootRasters <- file.path(rPath, filesToDownload[["name"]])
+  sim$bootRasters <- sort(file.path(rPath, filesToDownload[["name"]]))
 
   mod$BCRs <- basename(sim$bootRasters) %>% strsplit(., "_") %>% vapply(., `[[`, character(1), 2) %>%
     strsplit(., "-") %>% vapply(., `[[`, character(1), 1) %>% unique(.) %>% as.integer(.)
-  mod$birdSpp <- unique(substr(basename(sim$bootRasters), 9, 12))
+  mod$birdSpp <- sort(unique(substr(basename(sim$bootRasters), 9, 12)))
   mod$mPath <- checkPath(file.path(outputPath(sim), "meanRasters"), create = TRUE)
   mod$vPath <- checkPath(file.path(outputPath(sim), "varRasters"), create = TRUE)
-
-  # ! ----- STOP EDITING ----- ! #
-
-  return(invisible(sim))
-}
-
-doGIS <- function(sim) {
-  # ! ----- EDIT BELOW ----- ! #
-  z <- getOption("future.globals.maxSize")
-  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
-  on.exit(options(future.globals.maxSize = z, add = TRUE))
-
-  if (isTRUE(P(sim)$.useFuture)) {
-    plan("cluster", workers = P(sim)$cl)
-  } else (
-    plan("sequential")
-  )
-
-  ## TODO: prepInputs / postProcess all the raw bootstrapped rasters to rasterToMatch / studyArea
 
   # ! ----- STOP EDITING ----- ! #
 
@@ -203,13 +174,13 @@ doMeanVar <- function(sim) {
   options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
-  if (isTRUE(P(sim)$.useFuture)) {
+  origPlan <- if (isFALSE(is.null(P(sim)$cl)) && isTRUE(P(sim)$.useFuture)) {
     plan("cluster", workers = P(sim)$cl)
   } else (
     plan("sequential")
   )
+  on.exit(plan(origPlan), add = TRUE)
 
-browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
@@ -218,22 +189,27 @@ browser()
   scratchDir <- P(sim)$scratchDir
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
-      f <- grep(paste0(bird, "-BCR_", bcr), bootRasters, value = TRUE)
-      stopifnot(all(file.exists(f)))
+      f <- grep(paste0(bird, "-BCR_", bcr, ".*[.]tif$"), bootRasters, value = TRUE)
+      message(paste(paste(bird, bcr, "..."), collapse = "\n"))
 
-      raster::rasterOptions(default = TRUE)
-      options(rasterTmpDir = scratchDir)
+      if (length(f)) {
+        raster::rasterOptions(default = TRUE)
+        options(rasterTmpDir = scratchDir)
 
-      ## 2. create mean and variance rasters for each BCR x birdSpp
-      stk <- raster::stack(f)
+        ## 2. create mean and variance rasters for each BCR x birdSpp
+        f_mPath <- file.path(mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif"))
+        f_vPath <- file.path(vPath, paste0("var_", bird, "_BCR_", bcr, ".tif"))
 
-      meanRaster <- raster::calc(stk, mean)
-      writeRaster(meanRaster, file.path(mPath, paste0("mean_", bird, "_BCR_", bcr, ".tif")),
-                  overwrite = TRUE)
+        if (isFALSE(all(file.exists(f_mPath, f_vPath)))) {
+          stk <- raster::stack(f)
 
-      varRaster <- raster::calc(stk, stats::var)
-      writeRaster(varRaster, file.path(vPath, paste0("var_", bird, "_BCR_", bcr, ".tif")),
-                  overwrite = TRUE)
+          meanRaster <- raster::calc(stk, mean)
+          writeRaster(meanRaster, f_mPath, overwrite = TRUE)
+
+          varRaster <- raster::calc(stk, stats::var)
+          writeRaster(varRaster, f_vPath, overwrite = TRUE)
+        }
+      }
 
       ## 2a. determine number of bootstrap samples per bird x BCR
       length(f)
@@ -241,7 +217,7 @@ browser()
     names(nBirds) <- birdSpp
 
     data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
-  }, future.globals = c("BCRs", "birdSpp", "bootRasters", "mPath", "vPath"),
+  }, future.globals = c("BCRs", "birdSpp", "bootRasters", "mPath", "vPath", "scratchDir"),
   future.packages = "raster", future.seed = TRUE)
   names(nBCRs) <- as.character(mod$BCRs)
 
@@ -260,11 +236,12 @@ doMosaic <- function(sim) {
   options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
   on.exit(options(future.globals.maxSize = z, add = TRUE))
 
-  if (isTRUE(P(sim)$.useFuture)) {
+  origPlan <- if (isFALSE(is.null(P(sim)$cl)) && isTRUE(P(sim)$.useFuture)) {
     plan("cluster", workers = P(sim)$cl)
-  } else (
+  } else {
     plan("sequential")
-  )
+  }
+  on.exit(plan(origPlan), add = TRUE)
 
 browser()
   birdSpp <- mod$birdSpp
@@ -291,26 +268,16 @@ browser()
 
 doUpload <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
-  z <- getOption("future.globals.maxSize")
-  options(future.globals.maxSize = Inf) ## TODO: workaround bug in future_apply
-  on.exit(options(future.globals.maxSize = z, add = TRUE))
-
-  if (isTRUE(P(sim)$.useFuture)) {
-    plan("cluster", workers = P(sim)$cl)
-  } else (
-    plan("sequential")
-  )
-
 browser()
   uploadURL <- "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA"
   verbose <- isTRUE(P(sim)$.verbose)
 
   ## mean and var rasters
   filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
-  res <- future_lapply(filesToUpload, function(f) {
+  res <- lapply(filesToUpload, function(f) {
     ## TODO: only upload new files?? use drive_update() to update existing ones
-    retry(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE))
-  }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
+    retry(quote(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE)))
+  })
   names(res) <- filesToUpload
 
   if (any(isFALSE(res))) {

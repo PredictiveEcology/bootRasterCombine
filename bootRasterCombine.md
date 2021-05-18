@@ -14,51 +14,9 @@ editor_options:
 
 ```r
 library("Require")
-Require("PredictiveEcology/reproducible@development")
-```
-
-```
-## Loading required package: reproducible
-```
-
-```r
-Require("PredictiveEcology/SpaDES.core@development")
-```
-
-```
-## Loading required package: SpaDES.core
-```
-
-```
-## Loading required package: quickPlot
-```
-
-```
-## 
-## Attaching package: 'SpaDES.core'
-```
-
-```
-## The following objects are masked from 'package:stats':
-## 
-##     end, start
-```
-
-```
-## The following object is masked from 'package:utils':
-## 
-##     citation
-```
-
-```r
+Require(c("PredictiveEcology/reproducible@development",
+          "PredictiveEcology/SpaDES.core@development"))
 Require("PredictiveEcology/LandR@development", require = FALSE)
-```
-
-```
-## PredictiveEcology/reproducible@development 
-##                                       TRUE 
-## PredictiveEcology/SpaDES.core@development 
-##                                      TRUE
 ```
 
 # Overview
@@ -80,7 +38,6 @@ options(
   rasterTmpDir = scratchDir,
   reproducible.cacheSaveFormat = "qs"
 )
-
 
 setPaths(
   cachePath = checkPath("cache"),
@@ -132,7 +89,7 @@ Provide a summary of user-visible parameters.
 |.saveInterval    |numeric    |NA           |NA  |NA  |This describes the simulation time interval between save events.                                                                                 |
 |scratchDir       |character  |/tmp/Rtm.... |NA  |NA  |Single path to a directory to use as scratch location for raster operations.                                                                     |
 |.useCache        |logical    |FALSE        |NA  |NA  |Should caching of events or module be activated? This is generally intended for data-type modules, where stochasticity and time are not relevant |
-|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for download/upload and GIS tasks? If TRUE, uses future plan 'multicore'.                                                  |
+|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for raster processing tasks? If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.                            |
 |.verbose         |logical    |TRUE         |NA  |NA  |Should additonal info messages be printed?                                                                                                       |
 
 # Events
@@ -149,11 +106,6 @@ If the Google Drive folder contents are updated, simply delete the `gdrive_ls_ca
 
 Downloads all the raw bootstrap raster files from the Google Drive location.
 *WARNING: total uncompressed size of all these files is ~330 GB.*
-
-## GIS
-
-All rasters cropped, reprojected, masked using `rasterToMatch` and `studyArea`.
-*WARNING: this also requires substantial disk space, based on size of study area.*
 
 ## Calculate mean and variance
 

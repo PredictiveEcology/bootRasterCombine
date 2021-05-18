@@ -10,13 +10,13 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, results = "hold")
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE, results = "hold")
 ```
 
 ```{r packages}
 library("Require")
-Require("PredictiveEcology/reproducible@development")
-Require("PredictiveEcology/SpaDES.core@development")
+Require(c("PredictiveEcology/reproducible@development",
+          "PredictiveEcology/SpaDES.core@development"))
 Require("PredictiveEcology/LandR@development", require = FALSE)
 ```
 
@@ -38,7 +38,6 @@ options(
   rasterTmpDir = scratchDir,
   reproducible.cacheSaveFormat = "qs"
 )
-
 
 setPaths(
   cachePath = checkPath("cache"),
@@ -73,8 +72,8 @@ parallel::stopCluster(cl)
 
 Provide a summary of user-visible parameters.
 
-```{r moduleParams, echo = FALSE}
-df_params <- moduleParams("bootRasterCombine", "..")
+```{r moduleParams, echo = FALSE, eval = TRUE}
+df_params <- SpaDES.core::moduleParams("bootRasterCombine", "..")
 knitr::kable(df_params)
 ```
 
@@ -92,11 +91,6 @@ If the Google Drive folder contents are updated, simply delete the `gdrive_ls_ca
 
 Downloads all the raw bootstrap raster files from the Google Drive location.
 *WARNING: total uncompressed size of all these files is ~330 GB.*
-
-## GIS
-
-All rasters cropped, reprojected, masked using `rasterToMatch` and `studyArea`.
-*WARNING: this also requires substantial disk space, based on size of study area.*
 
 ## Calculate mean and variance
 
@@ -117,8 +111,8 @@ Upload the resulting mosaicked rasters to Google Drive.
 How to obtain input data, and a description of the data required by the module.
 If `sourceURL` is specified, `downloadData("bootRasterCombine", "..")` may be sufficient.
 
-```{r moduleInputs, echo = FALSE}
-df_inputs <- moduleInputs("bootRasterCombine", "..")
+```{r moduleInputs, echo = FALSE, eval = TRUE}
+df_inputs <- SpaDES.core::moduleInputs("bootRasterCombine", "..")
 knitr::kable(df_inputs)
 ```
 
@@ -126,8 +120,8 @@ knitr::kable(df_inputs)
 
 Description of the module outputs.
 
-```{r moduleOutputs, echo = FALSE}
-df_outputs <- moduleOutputs("bootRasterCombine", "..")
+```{r moduleOutputs, echo = FALSE, eval = TRUE}
+df_outputs <- SpaDES.core::moduleOutputs("bootRasterCombine", "..")
 knitr::kable(df_outputs)
 ```
 

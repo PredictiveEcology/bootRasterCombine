@@ -370,24 +370,9 @@ pre code {
 
 
 <pre class="r"><code>library(&quot;Require&quot;)
-Require(&quot;PredictiveEcology/reproducible@development&quot;)</code></pre>
-<pre><code>## Loading required package: reproducible</code></pre>
-<pre class="r"><code>Require(&quot;PredictiveEcology/SpaDES.core@development&quot;)</code></pre>
-<pre><code>## Loading required package: SpaDES.core</code></pre>
-<pre><code>## Loading required package: quickPlot</code></pre>
-<pre><code>## 
-## Attaching package: &#39;SpaDES.core&#39;</code></pre>
-<pre><code>## The following objects are masked from &#39;package:stats&#39;:
-## 
-##     end, start</code></pre>
-<pre><code>## The following object is masked from &#39;package:utils&#39;:
-## 
-##     citation</code></pre>
-<pre class="r"><code>Require(&quot;PredictiveEcology/LandR@development&quot;, require = FALSE)</code></pre>
-<pre><code>## PredictiveEcology/reproducible@development 
-##                                       TRUE 
-## PredictiveEcology/SpaDES.core@development 
-##                                      TRUE</code></pre>
+Require(c(&quot;PredictiveEcology/reproducible@development&quot;,
+          &quot;PredictiveEcology/SpaDES.core@development&quot;))
+Require(&quot;PredictiveEcology/LandR@development&quot;, require = FALSE)</code></pre>
 <div id="overview" class="section level1">
 <h1>Overview</h1>
 <p>Provide an overview of what the module does / how to use the module.</p>
@@ -403,7 +388,6 @@ options(
   rasterTmpDir = scratchDir,
   reproducible.cacheSaveFormat = &quot;qs&quot;
 )
-
 
 setPaths(
   cachePath = checkPath(&quot;cache&quot;),
@@ -527,7 +511,7 @@ parallel::stopCluster(cl)</code></pre>
 <td align="left">TRUE</td>
 <td align="left">NA</td>
 <td align="left">NA</td>
-<td align="left">Should future be used for download/upload and GIS tasks? If TRUE, uses future plan ‘multicore’.</td>
+<td align="left">Should future be used for raster processing tasks? If TRUE, uses future plan ‘cluster’ using the cluster <code>P(sim)$cl</code>.</td>
 </tr>
 <tr class="even">
 <td align="left">.verbose</td>
@@ -550,10 +534,6 @@ parallel::stopCluster(cl)</code></pre>
 <div id="download" class="section level2">
 <h2>Download</h2>
 <p>Downloads all the raw bootstrap raster files from the Google Drive location. <em>WARNING: total uncompressed size of all these files is ~330 GB.</em></p>
-</div>
-<div id="gis" class="section level2">
-<h2>GIS</h2>
-<p>All rasters cropped, reprojected, masked using <code>rasterToMatch</code> and <code>studyArea</code>. <em>WARNING: this also requires substantial disk space, based on size of study area.</em></p>
 </div>
 <div id="calculate-mean-and-variance" class="section level2">
 <h2>Calculate mean and variance</h2>
