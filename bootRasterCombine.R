@@ -29,7 +29,7 @@ defineModule(sim, list(
                     "This describes the simulation time interval between save events."),
     defineParameter("scratchDir", "character", NULL, NA, NA,
                     paste("Single path to a directory to use as scratch location for raster operations.",
-                          "If 'NULL', the temprary R sessien directory (`tempdir()`) will be used.")),
+                          "If 'NULL', the temporary R session directory (`tempdir()`) will be used.")),
     defineParameter("uploadURL", "character",
                     "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA",
                     NA, NA, "Google Drive URL corresponding to a folder to which outputs will be uploaded."),
