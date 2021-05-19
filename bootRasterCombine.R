@@ -27,8 +27,12 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
                     "This describes the simulation time interval between save events."),
-    defineParameter("scratchDir", "character", tempdir(), NA, NA,
-                    "Single path to a directory to use as scratch location for raster operations."),
+    defineParameter("scratchDir", "character", NULL, NA, NA,
+                    paste("Single path to a directory to use as scratch location for raster operations.",
+                          "If 'NULL', the temprary R sessien directory (`tempdir()`) will be used.")),
+    defineParameter("uploadURL", "character",
+                    "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA",
+                    NA, NA, "Google Drive URL corresponding to a folder to which outputs will be uploaded."),
     defineParameter(".useCache", "logical", FALSE, NA, NA,
                     paste("Should caching of events or module be activated?",
                           "This is generally intended for data-type modules, where stochasticity",
@@ -141,7 +145,7 @@ doDownload <- function(sim) {
         retry(quote(drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)),
                     retries = 5, exponentialDecayBase = 2)
         tryCatch({
-          raster::raster(fname)
+          r <- raster::raster(fname)
           TRUE
         }, error = function(e) {
           unlink(fname, force = TRUE)
@@ -163,6 +167,9 @@ doDownload <- function(sim) {
   mod$birdSpp <- sort(unique(substr(basename(sim$bootRasters), 9, 12)))
   mod$mPath <- checkPath(file.path(outputPath(sim), "meanRasters"), create = TRUE)
   mod$vPath <- checkPath(file.path(outputPath(sim), "varRasters"), create = TRUE)
+  mod$scratchDir <- checkPath(ifelse(is.null(P(sim)$scratchDir), tempdir(), P(sim)$scratchDir), creat = TRUE)
+
+  mod$omitSpp <- character(0) ## track which species have corrupted files, to omit them
 
   # ! ----- STOP EDITING ----- ! #
 
@@ -181,15 +188,16 @@ doMeanVar <- function(sim) {
     plan("sequential")
   )
   on.exit(plan(origPlan), add = TRUE)
-
+browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
   mPath <- mod$mPath
   vPath <- mod$vPath
-  scratchDir <- P(sim)$scratchDir
+  scratchDir <- mod$scratchDir
   nBCRs <- future_lapply(BCRs, function(bcr) {
     nBirds <- lapply(birdSpp, function(bird) {
+      #if (bird == "BAWW") browser()
       f <- grep(paste0(bird, "-BCR_", bcr, ".*[.]tif$"), bootRasters, value = TRUE)
       message(paste(paste(bird, bcr, "..."), collapse = "\n"))
 
@@ -204,11 +212,21 @@ doMeanVar <- function(sim) {
         if (isFALSE(all(file.exists(f_mPath, f_vPath)))) {
           stk <- raster::stack(f)
 
-          meanRaster <- raster::calc(stk, mean)
-          writeRaster(meanRaster, f_mPath, overwrite = TRUE)
+          meanRaster <- tryCatch(raster::calc(stk, mean), error = function(e) NA)
 
-          varRaster <- raster::calc(stk, stats::var)
-          writeRaster(varRaster, f_vPath, overwrite = TRUE)
+          if (is(meanRaster, "RasterLayer")) {
+            writeRaster(meanRaster, f_mPath, overwrite = TRUE)
+
+            varRaster <- tryCatch(raster::calc(stk, stats::var), error = function(e) NA)
+            if (is(varRaster, "RasterLayer")) {
+              writeRaster(varRaster, f_vPath, overwrite = TRUE)
+            }
+          }
+
+          if (!is(meanRaster, "RasterLayer") || !is(varRaster, "RasterLayer")) {
+            mod$omitSpp <- c(mod$omitSpp, bird)
+            f <- character(0)
+          }
         }
       }
 
@@ -252,6 +270,7 @@ browser()
   res <- future_lapply(birdSpp, function(bird) {
     mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif"))
     vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif"))
+    ## TODO: skip spp with no mean/var rasters
 
     mMosaic <- raster::mosaic(mRasters, fun = mean, na.rm = TRUE,
                               filename = file.path(oPath, paste0("mosaic_mean_", bird, ".tif")))
@@ -270,7 +289,7 @@ browser()
 doUpload <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
 browser()
-  uploadURL <- "https://drive.google.com/drive/folders/1fCTr2P-3Bh-7Qh4W0SMJ_mT9rpsKvGEA"
+  uploadURL <- P(sim)$uploadURL
   verbose <- isTRUE(P(sim)$.verbose)
 
   ## mean and var rasters
