@@ -320,7 +320,6 @@ doMosaic <- function(sim) {
 
 doUpload <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
-browser()
   uploadURL <- P(sim)$uploadURL
   verbose <- isTRUE(P(sim)$.verbose)
 
