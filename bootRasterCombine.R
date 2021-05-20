@@ -99,11 +99,10 @@ doEvent.bootRasterCombine = function(sim, eventTime, eventType) {
 ### template initialization
 Init <- function(sim) {
   # # ! ----- EDIT BELOW ----- ! #
-  dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
 
   ## there are >12k files, so stash a local copy of the drive_ls result, and use it when available
   bootPattern <- "BCR_.*-boot-.*[.]tif$"
-  f <- file.path(dPath, "gdrive_ls_cache.qs")
+  f <- file.path(mod$dPath, "gdrive_ls_cache.qs")
   mod$filesToDownload <- if (file.exists(f)) {
     filesToDownload <- qs::qload(f, env = environment())
     if (is(filesToDownload, "environment")) {
@@ -124,8 +123,7 @@ Init <- function(sim) {
 
 doDownload <- function(sim) {
   # ! ----- EDIT BELOW ----- ! #
-  dPath <- asPath(checkPath(file.path(getOption("reproducible.destinationPath", dataPath(sim))), create = TRUE), 1)
-  rPath <- asPath(checkPath(file.path(dPath, "rawBootRasters"), create = TRUE), 1)
+  rPath <- asPath(checkPath(file.path(mod$dPath, "rawBootRasters"), create = TRUE), 1)
 
   ## check available disk space (GB)
   availDiskSpace <- disk.usage(rPath)[[2]] %>% revText(.) %>% substring(., 2) %>% revText(.) %>% as.numeric()
@@ -272,7 +270,7 @@ doMeanVar <- function(sim) {
   ## 2b. create data.table with (updated) number of bootstrap replicates
   ##     i.e., only those whose files could actually be loaded
   sim$bootstrapReplicates <- rbindlist(nBirds)
-  fwrite(sim$bootstrapReplicates, file.path(dirname(dPath), "bootstrap_replicates.csv"))
+  fwrite(sim$bootstrapReplicates, file.path(dirname(mod$dPath), "bootstrap_replicates.csv"))
 
   # ! ----- STOP EDITING ----- ! #
   return(invisible(sim))
@@ -299,7 +297,6 @@ browser()
   res <- future_lapply(birdSpp, function(bird) {
     mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif$"))
     vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif$"))
-    ## TODO: skip spp with no mean/var rasters
 
     mMosaic <- raster::mosaic(mRasters, fun = mean, na.rm = TRUE,
                               filename = file.path(oPath, paste0("mosaic_mean_", bird, ".tif")))
@@ -335,7 +332,7 @@ browser()
   }
 
   ## csv of bootstrap repilcates
-  csvFile <- file.path(dPath, "bootstrap_replicates.csv")
+  csvFile <- file.path(mod$dPath, "bootstrap_replicates.csv")
   drive_update(media = csvFile, file = csvURL, name = "noBootsDF.csv", verbose = verbose)
 
   # ! ----- STOP EDITING ----- ! #
@@ -344,8 +341,9 @@ browser()
 
 .inputObjects <- function(sim) {
   cacheTags <- c(currentModule(sim), "function:.inputObjects")
-  dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
-  message(currentModule(sim), ": using dataPath '", dPath, "'.")
+  mod$dPath <- asPath(checkPath(file.path(getOption("reproducible.destinationPath", dataPath(sim))),
+                                create = TRUE), 1)
+  message(currentModule(sim), ": using dataPath '", mod$dPath, "'.")
 
   # ! ----- EDIT BELOW ----- ! #
   mod$targetCRS <- paste("+proj=lcc +lat_1=49 +lat_2=77 +lat_0=0 +lon_0=-95",
@@ -355,7 +353,7 @@ browser()
     bcrzip <- "https://www.birdscanada.org/download/gislab/bcr_terrestrial_shape.zip"
     bcrshp <- Cache(prepInputs,
                     url = bcrzip,
-                    destinationPath = dPath,
+                    destinationPath = mod$dPath,
                     targetCRS = mod$targetCRS,
                     fun = "sf::st_read")
 
@@ -363,7 +361,7 @@ browser()
   }
 
   if (!suppliedElsewhere("rasterToMatch")) {
-    sim$rasterToMatch <- LandR::prepInputsLCC(year = 2005, destinationPath = dPath,
+    sim$rasterToMatch <- LandR::prepInputsLCC(year = 2005, destinationPath = mod$dPath,
                                               studyArea = sim$studyArea, filename2 = NULL)
   }
 
