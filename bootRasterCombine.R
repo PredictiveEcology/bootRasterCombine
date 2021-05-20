@@ -102,7 +102,7 @@ Init <- function(sim) {
   dPath <- asPath(getOption("reproducible.destinationPath", dataPath(sim)), 1)
 
   ## there are >12k files, so stash a local copy of the drive_ls result, and use it when available
-  bootPattern <- "BCR_.*-boot-.*"
+  bootPattern <- "BCR_.*-boot-.*[.]tif$"
   f <- file.path(dPath, "gdrive_ls_cache.qs")
   mod$filesToDownload <- if (file.exists(f)) {
     filesToDownload <- qs::qload(f, env = environment())
@@ -137,11 +137,12 @@ doDownload <- function(sim) {
   ## 1. download boostrapped rasters
   filesToDownload <- mod$filesToDownload
   res <- apply(filesToDownload, 1, function(f) {
-    if (file.exists(file.path(rPath, f$name))) {
+    fname <- file.path(rPath, f[["name"]])
+    if (file.exists(fname) && file.size(fname) > 0) {
       TRUE
     } else {
+      unlink(fname)
       tryCatch({
-        fname <- file.path(rPath, f[["name"]])
         retry(quote(drive_download(file = as_id(f[["id"]]), path = fname, overwrite = TRUE)),
                     retries = 5, exponentialDecayBase = 2)
         tryCatch({
@@ -160,19 +161,47 @@ doDownload <- function(sim) {
     scheduleEvent(sim, time(sim), "bootRasterCombine", "download", .highest())
   }
 
-  sim$bootRasters <- sort(file.path(rPath, filesToDownload[["name"]]))
+  bootRasters <- sort(file.path(rPath, filesToDownload[["name"]]))
+  BCRs <- basename(bootRasters) %>%
+    strsplit(., "_") %>%
+    vapply(., `[[`, character(1), 2) %>%
+    strsplit(., "-") %>%
+    vapply(., `[[`, character(1), 1) %>%
+    as.integer(.)
+  birdSpp <- basename(bootRasters) %>%
+    substr(., 9, 12)
+  bootreps <- basename(bootRasters) %>%
+    strsplit(., "-boot-") %>%
+    vapply(., `[[`, character(1), 2) %>%
+    strsplit(., "[.]") %>%
+    vapply(., `[[`, character(1), 1) %>%
+    as.integer(.)
 
-  mod$BCRs <- basename(sim$bootRasters) %>% strsplit(., "_") %>% vapply(., `[[`, character(1), 2) %>%
-    strsplit(., "-") %>% vapply(., `[[`, character(1), 1) %>% unique(.) %>% as.integer(.)
-  mod$birdSpp <- sort(unique(substr(basename(sim$bootRasters), 9, 12)))
+  ## omit species that do not have >1 bootstrap replicate for all BCRs
+  dl_dt <- data.table(bcr = BCRs, bird = birdSpp, rep = bootreps, file = bootRasters)
+  mod$availableRasters <- copy(dl_dt)
+
+  reps_dt <- copy(dl_dt)
+  set(reps_dt, NULL, c("rep", "file"), NULL)
+  reps_dt[, N := .N, by = c("bcr", "bird")]
+  reps_dt <- unique(reps_dt)
+  reps_dt <- reps_dt[N > 0, ]
+  reps_dt[, allbcrs := lapply(.SD, function(x) all(unique(BCRs) %in% bcr)), by = "bird"]
+  reps_dt <- reps_dt[allbcrs == TRUE, ]
+
+  birdSppPruned <- unique(reps_dt[["bird"]])
+  dl_dt <- dl_dt[bird %in% birdSppPruned, ]
+
+  sim$bootRasters <- dl_dt[["file"]] ## pruned list
+
+  mod$downloadedRaster <- copy(dl_dt)
+  mod$BCRs <- sort(unique(BCRs))
+  mod$birdSpp <- birdSppPruned
   mod$mPath <- checkPath(file.path(outputPath(sim), "meanRasters"), create = TRUE)
   mod$vPath <- checkPath(file.path(outputPath(sim), "varRasters"), create = TRUE)
-  mod$scratchDir <- checkPath(ifelse(is.null(P(sim)$scratchDir), tempdir(), P(sim)$scratchDir), creat = TRUE)
-
-  mod$omitSpp <- character(0) ## track which species have corrupted files, to omit them
+  mod$scratchDir <- checkPath(ifelse(is.null(P(sim)$scratchDir), tempdir(), P(sim)$scratchDir), create = TRUE)
 
   # ! ----- STOP EDITING ----- ! #
-
   return(invisible(sim))
 }
 
@@ -188,17 +217,18 @@ doMeanVar <- function(sim) {
     plan("sequential")
   )
   on.exit(plan(origPlan), add = TRUE)
-browser()
+#browser()
   BCRs <- mod$BCRs
   birdSpp <- mod$birdSpp
   bootRasters <- sim$bootRasters
   mPath <- mod$mPath
   vPath <- mod$vPath
   scratchDir <- mod$scratchDir
-  nBCRs <- future_lapply(BCRs, function(bcr) {
-    nBirds <- lapply(birdSpp, function(bird) {
-      #if (bird == "BAWW") browser()
-      f <- grep(paste0(bird, "-BCR_", bcr, ".*[.]tif$"), bootRasters, value = TRUE)
+  nBirds <- future_lapply(birdSpp, function(bird) {
+    nBCRs <- lapply(BCRs, function(bcr) {
+      #if (bird == "EUST" && bcr == 12) browser()
+      bootPattern <- paste0(bird, "-BCR_", bcr, ".*[.]tif$")
+      f <- grep(bootPattern, bootRasters, value = TRUE)
       message(paste(paste(bird, bcr, "..."), collapse = "\n"))
 
       if (length(f)) {
@@ -224,7 +254,6 @@ browser()
           }
 
           if (!is(meanRaster, "RasterLayer") || !is(varRaster, "RasterLayer")) {
-            mod$omitSpp <- c(mod$omitSpp, bird)
             f <- character(0)
           }
         }
@@ -233,19 +262,19 @@ browser()
       ## 2a. determine number of bootstrap samples per bird x BCR
       length(f)
     })
-    names(nBirds) <- birdSpp
+    names(nBCRs) <- nBCRs
 
-    data.table(BCR = bcr, BIRD = birdSpp, N = nBirds)
+    data.table(BCR = BCRs, BIRD = bird, N = nBCRs)
   }, future.globals = c("BCRs", "birdSpp", "bootRasters", "mPath", "vPath", "scratchDir"),
   future.packages = "raster", future.seed = TRUE)
-  names(nBCRs) <- as.character(mod$BCRs)
+  names(nBirds) <- as.character(mod$birdSpp)
 
-  ## 2b. create data.table with number of bootstrap replicates
-  sim$bootstrapReplicates <- rbindlist(nBCRs)
-  fwrite(sim$sim$bootstrapReplicates, file.path(dirname(dPath), "bootstrap_replicates.csv"))
+  ## 2b. create data.table with (updated) number of bootstrap replicates
+  ##     i.e., only those whose files could actually be loaded
+  sim$bootstrapReplicates <- rbindlist(nBirds)
+  fwrite(sim$bootstrapReplicates, file.path(dirname(dPath), "bootstrap_replicates.csv"))
 
   # ! ----- STOP EDITING ----- ! #
-
   return(invisible(sim))
 }
 
@@ -268,8 +297,8 @@ browser()
   vPath <- mod$vPath
   oPath <- outputPath(sim)
   res <- future_lapply(birdSpp, function(bird) {
-    mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif"))
-    vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif"))
+    mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif$"))
+    vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif$"))
     ## TODO: skip spp with no mean/var rasters
 
     mMosaic <- raster::mosaic(mRasters, fun = mean, na.rm = TRUE,
