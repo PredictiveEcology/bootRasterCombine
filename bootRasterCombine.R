@@ -270,7 +270,7 @@ doMeanVar <- function(sim) {
   ## 2b. create data.table with (updated) number of bootstrap replicates
   ##     i.e., only those whose files could actually be loaded
   sim$bootstrapReplicates <- rbindlist(nBirds)
-  fwrite(sim$bootstrapReplicates, file.path(dirname(mod$dPath), "bootstrap_replicates.csv"))
+  fwrite(sim$bootstrapReplicates, file.path(outputPath(sim), "bootstrap_replicates.csv"))
 
   # ! ----- STOP EDITING ----- ! #
   return(invisible(sim))
@@ -289,23 +289,26 @@ doMosaic <- function(sim) {
   }
   on.exit(plan(origPlan), add = TRUE)
 
-browser()
   birdSpp <- mod$birdSpp
   mPath <- mod$mPath
   vPath <- mod$vPath
   oPath <- outputPath(sim)
   res <- future_lapply(birdSpp, function(bird) {
-    mRasters <- list.files(mPath, paste0("mean_", bird, "BCR_.*[.]tif$"))
-    vRasters <- list.files(vPath, paste0("var_", bird, "BCR_.*[.]tif$"))
+    mRasters <- lapply(list.files(mPath, paste0("mean_", bird, "_BCR_.*[.]tif$"), full.names = TRUE), raster)
+    mRasters$fun <- mean
+    mRasters$na.rm <- TRUE
+    mRasters$filename <- file.path(oPath, paste0("mosaic_mean_", bird, ".tif"))
+    mMosaic <- do.call(raster::mosaic, mRasters)
 
-    mMosaic <- raster::mosaic(mRasters, fun = mean, na.rm = TRUE,
-                              filename = file.path(oPath, paste0("mosaic_mean_", bird, ".tif")))
-    vMosaic <- raster::mosaic(vRasters, fun = mean, na.rm = TRUE,
-                              filename = file.path(oPath, paste0("mosaic_var_", bird, ".tif")))
+    vRasters <- lapply(list.files(vPath, paste0("var_", bird, "_BCR_.*[.]tif$"), full.names = TRUE), raster)
+    vRasters$fun <- mean ## TODO: does mean variance makes sense here?
+    vRasters$na.rm <- TRUE
+    vRasters$filename <- file.path(oPath, paste0("mosaic_var_", bird, ".tif"))
+    vMosaic <- do.call(raster::mosaic, vRasters)
+
+    NULL
   }, future.globals = c("birdSpp", "mPath", "oPath", "vPath"), future.packages = "raster", future.seed = TRUE)
   names(res) <- birdSpp
-
-  ## TODO: keep the lists of output rasters in the simList, or can we simply `dir()` downstream?
 
   # ! ----- STOP EDITING ----- ! #
 
@@ -331,7 +334,7 @@ browser()
     scheduleEvent(sim, start(sim), "bootRasterCombine", "upload")
   }
 
-  ## csv of bootstrap repilcates
+  ## csv of bootstrap replicates
   csvFile <- file.path(mod$dPath, "bootstrap_replicates.csv")
   drive_update(media = csvFile, file = csvURL, name = "noBootsDF.csv", verbose = verbose)
 

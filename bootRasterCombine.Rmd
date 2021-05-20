@@ -48,7 +48,7 @@ setPaths(
 
 times <- list(start = 0, end = 1)
 
-cl <- parallel::makeCluster(parallel::detectCores() / 2) ## NOTE: <5 GB per thread
+cl <- parallel::makeCluster(parallel::detectCores() / 2) ## NOTE: <15 GB per thread
 parameters <- list(
   bootRasterCombine = list(
     cl = cl,

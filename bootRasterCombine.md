@@ -48,7 +48,7 @@ setPaths(
 
 times <- list(start = 0, end = 1)
 
-cl <- parallel::makeCluster(parallel::detectCores() / 2)
+cl <- parallel::makeCluster(parallel::detectCores() / 2) ## NOTE: <15 GB per thread
 parameters <- list(
   bootRasterCombine = list(
     cl = cl,
@@ -79,18 +79,19 @@ Provide a summary of user-visible parameters.
 
 
 
-|paramName        |paramClass |default      |min |max |paramDesc                                                                                                                                        |
-|:----------------|:----------|:------------|:---|:---|:------------------------------------------------------------------------------------------------------------------------------------------------|
-|cl               |cluster    |             |NA  |NA  |cluster object created using 'parallel:makeCluster()'.                                                                                           |
-|.plots           |character  |screen       |NA  |NA  |Used by Plots function, which can be optionally used here.                                                                                       |
-|.plotInitialTime |numeric    |start(sim)   |NA  |NA  |Describes the simulation time at which the first plot event should occur.                                                                        |
-|.plotInterval    |numeric    |NA           |NA  |NA  |Describes the simulation time interval between plot events.                                                                                      |
-|.saveInitialTime |numeric    |NA           |NA  |NA  |Describes the simulation time at which the first save event should occur.                                                                        |
-|.saveInterval    |numeric    |NA           |NA  |NA  |This describes the simulation time interval between save events.                                                                                 |
-|scratchDir       |character  |/tmp/Rtm.... |NA  |NA  |Single path to a directory to use as scratch location for raster operations.                                                                     |
-|.useCache        |logical    |FALSE        |NA  |NA  |Should caching of events or module be activated? This is generally intended for data-type modules, where stochasticity and time are not relevant |
-|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for raster processing tasks? If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.                            |
-|.verbose         |logical    |TRUE         |NA  |NA  |Should additonal info messages be printed?                                                                                                       |
+|paramName        |paramClass |default      |min |max |paramDesc                                                                                                                                             |
+|:----------------|:----------|:------------|:---|:---|:-----------------------------------------------------------------------------------------------------------------------------------------------------|
+|cl               |cluster    |             |NA  |NA  |cluster object created using 'parallel:makeCluster()'.                                                                                                |
+|.plots           |character  |screen       |NA  |NA  |Used by Plots function, which can be optionally used here.                                                                                            |
+|.plotInitialTime |numeric    |start(sim)   |NA  |NA  |Describes the simulation time at which the first plot event should occur.                                                                             |
+|.plotInterval    |numeric    |NA           |NA  |NA  |Describes the simulation time interval between plot events.                                                                                           |
+|.saveInitialTime |numeric    |NA           |NA  |NA  |Describes the simulation time at which the first save event should occur.                                                                             |
+|.saveInterval    |numeric    |NA           |NA  |NA  |This describes the simulation time interval between save events.                                                                                      |
+|scratchDir       |character  |             |NA  |NA  |Single path to a directory to use as scratch location for raster operations. If 'NULL', the temporary R session directory (`tempdir()`) will be used. |
+|uploadURL        |character  |https://.... |NA  |NA  |Google Drive URL corresponding to a folder to which outputs will be uploaded.                                                                         |
+|.useCache        |logical    |FALSE        |NA  |NA  |Should caching of events or module be activated? This is generally intended for data-type modules, where stochasticity and time are not relevant      |
+|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for raster processing tasks? If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.                                 |
+|.verbose         |logical    |TRUE         |NA  |NA  |Should additonal info messages be printed?                                                                                                            |
 
 # Events
 
