@@ -17,6 +17,8 @@ defineModule(sim, list(
   ),
   parameters = rbind(
     defineParameter("cl", "cluster", NULL, NA, NA, "cluster object created using 'parallel:makeCluster()'."),
+    defineParameter("csvUrl", "character", "https://drive.google.com/file/d/1ldESo9gb6icRD8ZsuPgaEDSIwFjJEe4W/",
+                    NA, NA, "Link to Google Drive file specifying the nubmer of bootstrap reps per species/bcr."),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here."),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -294,6 +296,7 @@ doMosaic <- function(sim) {
   vPath <- mod$vPath
   oPath <- outputPath(sim)
   res <- future_lapply(birdSpp, function(bird) {
+    ## TODO: skip re-doing that already exist
     mRasters <- lapply(list.files(mPath, paste0("mean_", bird, "_BCR_.*[.]tif$"), full.names = TRUE), raster)
     mRasters$fun <- mean
     mRasters$na.rm <- TRUE
@@ -322,21 +325,22 @@ browser()
   verbose <- isTRUE(P(sim)$.verbose)
 
   ## mean and var rasters
-  filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", recursive = TRUE)
+  filesToUpload <- list.files(outputPath(sim), pattern = "mosaic_", full.names = TRUE)
   res <- lapply(filesToUpload, function(f) {
     ## TODO: only upload new files?? use drive_update() to update existing ones
     retry(quote(drive_upload(media = f, path = uploadURL, name = basename(f), verbose = verbose, overwrite = TRUE)),
           retries = 5, exponentialDecayBase = 2)
-  }, future.globals = c("uploadURL", "verbose"), future.packages = "googledrive")
-  names(res) <- filesToUpload
+  })
+  names(res) <- basename(filesToUpload)
 
-  if (any(isFALSE(res))) {
+  if (!all(vapply(res, function(x) is(x, "dribble"), logical(1)))) {
+    # TODO: don't reupload them all; figure out which ones failed and only do those (see dl code above)
     scheduleEvent(sim, start(sim), "bootRasterCombine", "upload")
   }
 
   ## csv of bootstrap replicates
-  csvFile <- file.path(mod$dPath, "bootstrap_replicates.csv")
-  drive_update(media = csvFile, file = csvURL, name = "noBootsDF.csv", verbose = verbose)
+  csvFile <- file.path(outputPath(sim), "bootstrap_replicates.csv")
+  drive_update(media = csvFile, file = P(sim)$csvURL, name = "noBootsDF.csv", verbose = verbose)
 
   # ! ----- STOP EDITING ----- ! #
   return(invisible(sim))

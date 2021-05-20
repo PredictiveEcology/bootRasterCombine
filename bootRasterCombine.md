@@ -82,6 +82,7 @@ Provide a summary of user-visible parameters.
 |paramName        |paramClass |default      |min |max |paramDesc                                                                                                                                             |
 |:----------------|:----------|:------------|:---|:---|:-----------------------------------------------------------------------------------------------------------------------------------------------------|
 |cl               |cluster    |             |NA  |NA  |cluster object created using 'parallel:makeCluster()'.                                                                                                |
+|csvUrl           |character  |https://.... |NA  |NA  |Link to Google Drive file specifying the nubmer of bootstrap reps per species/bcr.                                                                    |
 |.plots           |character  |screen       |NA  |NA  |Used by Plots function, which can be optionally used here.                                                                                            |
 |.plotInitialTime |numeric    |start(sim)   |NA  |NA  |Describes the simulation time at which the first plot event should occur.                                                                             |
 |.plotInterval    |numeric    |NA           |NA  |NA  |Describes the simulation time interval between plot events.                                                                                           |
