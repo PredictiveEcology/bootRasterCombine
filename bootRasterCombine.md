@@ -12,7 +12,7 @@ editor_options:
 
 
 
-```r
+``` r
 library("Require")
 Require(c("PredictiveEcology/reproducible@development",
           "PredictiveEcology/SpaDES.core@development"))
@@ -29,7 +29,7 @@ This is a template for module documentation, and should be changed to reflect yo
 # Usage
 
 
-```r
+``` r
 scratchDir <- checkPath("~/scratch/bootRasterCombine", create = TRUE)
 
 raster::rasterOptions(default = TRUE)
@@ -73,26 +73,20 @@ parallel::stopCluster(cl)
 Provide a summary of user-visible parameters.
 
 
-```
-## defineParameter: '.plotInitialTime' is not of specified type 'numeric'.
-```
-
-
-
-|paramName        |paramClass |default      |min |max |paramDesc                                                                                                                                             |
-|:----------------|:----------|:------------|:---|:---|:-----------------------------------------------------------------------------------------------------------------------------------------------------|
-|cl               |cluster    |             |NA  |NA  |cluster object created using 'parallel:makeCluster()'.                                                                                                |
-|csvUrl           |character  |https://.... |NA  |NA  |Link to Google Drive file specifying the nubmer of bootstrap reps per species/bcr.                                                                    |
-|.plots           |character  |screen       |NA  |NA  |Used by Plots function, which can be optionally used here.                                                                                            |
-|.plotInitialTime |numeric    |start(sim)   |NA  |NA  |Describes the simulation time at which the first plot event should occur.                                                                             |
-|.plotInterval    |numeric    |NA           |NA  |NA  |Describes the simulation time interval between plot events.                                                                                           |
-|.saveInitialTime |numeric    |NA           |NA  |NA  |Describes the simulation time at which the first save event should occur.                                                                             |
-|.saveInterval    |numeric    |NA           |NA  |NA  |This describes the simulation time interval between save events.                                                                                      |
-|scratchDir       |character  |             |NA  |NA  |Single path to a directory to use as scratch location for raster operations. If 'NULL', the temporary R session directory (`tempdir()`) will be used. |
-|uploadURL        |character  |https://.... |NA  |NA  |Google Drive URL corresponding to a folder to which outputs will be uploaded.                                                                         |
-|.useCache        |logical    |FALSE        |NA  |NA  |Should caching of events or module be activated? This is generally intended for data-type modules, where stochasticity and time are not relevant      |
-|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for raster processing tasks? If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.                                 |
-|.verbose         |logical    |TRUE         |NA  |NA  |Should additonal info messages be printed?                                                                                                            |
+|paramName        |paramClass |default      |min |max |paramDesc                                                                                                                                             |cacheKey |
+|:----------------|:----------|:------------|:---|:---|:-----------------------------------------------------------------------------------------------------------------------------------------------------|:--------|
+|cl               |cluster    |             |NA  |NA  |cluster object created using 'parallel:makeCluster()'.                                                                                                |TRUE     |
+|csvUrl           |character  |https://.... |NA  |NA  |Link to Google Drive file specifying the nubmer of bootstrap reps per species/bcr.                                                                    |TRUE     |
+|.plots           |character  |screen       |NA  |NA  |Used by Plots function, which can be optionally used here.                                                                                            |TRUE     |
+|.plotInitialTime |numeric    |0            |NA  |NA  |Describes the simulation time at which the first plot event should occur.                                                                             |TRUE     |
+|.plotInterval    |numeric    |NA           |NA  |NA  |Describes the simulation time interval between plot events.                                                                                           |TRUE     |
+|.saveInitialTime |numeric    |NA           |NA  |NA  |Describes the simulation time at which the first save event should occur.                                                                             |TRUE     |
+|.saveInterval    |numeric    |NA           |NA  |NA  |This describes the simulation time interval between save events.                                                                                      |TRUE     |
+|scratchDir       |character  |             |NA  |NA  |Single path to a directory to use as scratch location for raster operations. If 'NULL', the temporary R session directory (`tempdir()`) will be used. |TRUE     |
+|uploadURL        |character  |https://.... |NA  |NA  |Google Drive URL corresponding to a folder to which outputs will be uploaded.                                                                         |TRUE     |
+|.useCache        |logical    |FALSE        |NA  |NA  |Should caching of events or module be activated? This is generally intended for data-type modules, where stochasticity and time are not relevant      |TRUE     |
+|.useFuture       |logical    |TRUE         |NA  |NA  |Should future be used for raster processing tasks? If TRUE, uses future plan 'cluster' using the cluster `P(sim)$cl`.                                 |TRUE     |
+|.verbose         |logical    |TRUE         |NA  |NA  |Should additonal info messages be printed?                                                                                                            |TRUE     |
 
 # Events
 
@@ -129,12 +123,6 @@ How to obtain input data, and a description of the data required by the module.
 If `sourceURL` is specified, `downloadData("bootRasterCombine", "..")` may be sufficient.
 
 
-```
-## defineParameter: '.plotInitialTime' is not of specified type 'numeric'.
-```
-
-
-
 |objectName    |objectClass              |desc                              |sourceURL |
 |:-------------|:------------------------|:---------------------------------|:---------|
 |rasterToMatch |RasterLayer              |raster to match. default LCC2005. |NA        |
@@ -143,12 +131,6 @@ If `sourceURL` is specified, `downloadData("bootRasterCombine", "..")` may be su
 ## Output data
 
 Description of the module outputs.
-
-
-```
-## defineParameter: '.plotInitialTime' is not of specified type 'numeric'.
-```
-
 
 
 |objectName          |objectClass |desc                                                                   |
