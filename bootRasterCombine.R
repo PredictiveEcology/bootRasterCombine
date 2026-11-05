@@ -13,7 +13,8 @@ defineModule(sim, list(
   citation = list("citation.bib"),
   documentation = deparse(list("README.txt", "bootRasterCombine.Rmd")),
   reqdPkgs = list(
-    "future.apply", "googledrive", "raster", "reproducible", "qs", "PredictiveEcology/LandR"
+    "future.apply", "googledrive", "httr2", "raster", "reproducible", "qs",
+    "PredictiveEcology/LandR"
   ),
   parameters = rbind(
     defineParameter("cl", "cluster", NULL, NA, NA, "cluster object created using 'parallel:makeCluster()'."),
